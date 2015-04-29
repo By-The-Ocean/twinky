@@ -1,4 +1,3 @@
-We are yet in ALPHA, feel free to use and comment.
 #What is Twinky?
 
 * Have you ever been tired to change a single line of code in your project over and over when uploading to a web server?
@@ -41,6 +40,15 @@ Script creates this file on run and check if every directory and file in main fo
 Those that match are not put in output archive.
 
 * -t=TAGS,SEPARATED,BY,COMA
-use -t option to pass tags you want Twinky to use.
+use -t option with parameters to pass tags you want Twinky to use.
+Use -t without parameters to see all tags in files.
+
+* Use -o option to overwrite files without creating an archive
 
 * Twinky is written in PHP and uses your /usr/bin/php to run it.
+
+
+Version
+-
+
+Version 1.3

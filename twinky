@@ -1,66 +1,34 @@
 #!/usr/bin/php
 <?php
-ini_set('max_execution_time', 5000);
-define('VERSION', '1.0');
-define('TEMP_FOLDER', 'twinky_temp_data/');
-define('IGNORE_FILE', '.twinkyIgnore');
+ini_set('max_execution_time', 0);
+define('VERSION', '1.3');
+define('TEMP_FOLDER', 'twinky_temp_' . md5(mt_rand(0, 10)) . '/');
+define('IGNORE_FILE', '.twinkyignore');
+
 /*
- * принимаем все аргументы скрипта и 
- * формируем массив $arguments['аргумент']='значение'
- * 
+ * Место для определения вспомогательных функций
  */
-for ($a = 1; $a < $argc; $a++) {
-    $arg = explode('=', $argv[$a]);
-    if (isset($arg[1]))
-        $arguments[$arg[0]] = $arg[1];
-    else
-        $arguments[$arg[0]] = true;
-}
 
-echo "\n";
-echo "Twinky php parser version " . VERSION . "\n";
-if (!isset($arguments['-t']))
-    die('use "-t" to add tags' . "\n");
-
-@mkdir(TEMP_FOLDER, 0777);
-
-
-
-$pattern = "/\/\* *(.*)#start *\*\/(.|\s)*?\/\* *(.*)#end *\*\//"; //php
-
-$tags = explode(',', $arguments['-t']);
-
-function recurse_copy($src, $dst) {
-    file_put_contents(IGNORE_FILE, null, FILE_APPEND);
-     $ignore_file = str_replace('/', '\/', file_get_contents(IGNORE_FILE));
-    $ignore_file = array_diff(explode("\n", $ignore_file), ['']);
-    $exclude = rtrim($dst, '/');
-    
-
-    
-    $dir = opendir($src);
-    @mkdir($dst);
-    while (false !== ( $file = readdir($dir))) {
-        if (( $file != '.' ) && ( $file != '..' ) && $file != $exclude) {
-            foreach ($ignore_file as $ignore) {
-               //echo "$ignore $file\n";
-                if (preg_match("/$ignore".'$'."/", $file)) {
-                    //echo "break\n";
-                    continue 2;
-                }
-            }
-            if (is_dir($src . '/' . $file)) {
-                recurse_copy($src . '/' . $file, $dst . '/' . $file);
-            } else {
-                copy($src . '/' . $file, $dst . '/' . $file);
-            }
+function rmdir_recursive($folder) {
+    /*
+     * Уддаляем папку и все ее содержимое
+     */
+    $it_files = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($folder, RecursiveDirectoryIterator::SKIP_DOTS
+            ), RecursiveIteratorIterator::CHILD_FIRST);
+    foreach ($it_files as $file) {
+        if ($file->isDir()) {
+            rmdir($file->getRealPath());
+        } else {
+            unlink($file->getRealPath());
         }
     }
-    closedir($dir);
-   
+    rmdir($folder);
 }
-
-function directoryToArray($directory, $recursive) {
+function directoryToArray($directory, $recursive = true) {
+    /*
+     * возвращает массив с именами файлов из директории. рекурсивно или нет.
+     */
     $array_items = array();
     if ($handle = opendir($directory)) {
         while (false !== ($file = readdir($handle))) {
@@ -81,30 +49,89 @@ function directoryToArray($directory, $recursive) {
     }
     return $array_items;
 }
+function recurse_copy($src, $dst) {
+    /*
+     * копирует дирректорию со всеми файлами внутри 
+     * Игнорирует файлы в "черном списке" и дирукторию, в которую копируют.
+     */
+    file_put_contents(IGNORE_FILE, null, FILE_APPEND);
+    $ignore_file = str_replace('/', '\/', file_get_contents(IGNORE_FILE));
+    $ignore_file = array_diff(explode("\n", $ignore_file), ['']);
+    $exclude = rtrim($dst, '/');
 
-recurse_copy(getcwd(), TEMP_FOLDER);
-$files = directoryToArray(TEMP_FOLDER, true);
+    $dir = opendir($src);
+    @mkdir($dst);
+    while (false !== ( $file = readdir($dir))) {
+        if (( $file != '.' ) && ( $file != '..' ) && $file != $exclude) {
+            foreach ($ignore_file as $ignore) { //часть отвечающая за черный список
+                if (preg_match("/$ignore" . '$' . "/", $file)) {
+                    ;
+                    continue 2;
+                }
+            }
+            if (is_dir($src . '/' . $file)) {
+                recurse_copy($src . '/' . $file, $dst . '/' . $file);
+            } else {
+                copy($src . '/' . $file, $dst . '/' . $file);
+            }
+        }
+    }
+    closedir($dir);
+    return directoryToArray(TEMP_FOLDER);
+}
 
-//var_dump($files);
-//die();
-//$files = array_diff(scandir(getcwd()), array('..', '.'));
-//var_dump($files);
-//die();
+/*
+ * Преобразуем все параметры переданные Твинки в массив $arguments['-x'] = 'xxx' ; 
+ */
+for ($a = 1; $a < $argc; $a++) {
+    $arg = explode('=', $argv[$a]);
+    if (isset($arg[1]))
+        $arguments[$arg[0]] = $arg[1];
+    else
+        $arguments[$arg[0]] = true;
+}
 
+echo "\n";
+echo "Twinky php helper version " . VERSION . "\n";
 
+/*
+ * Выдаем предупреждение об отстутствующих тэгах
+ */
+
+if (!isset($arguments['-t']))
+    die('use "-t" to add tags' . "\n");
+
+/*
+ * Определяем некоторые важные вещи.
+ */
+$pattern = "/\/\* *(.*)#start *\*\/(.|\s)*?\/\* *(.*)#end *\*\//"; //php
+$tags = explode(',', $arguments['-t']);
+
+/*
+ * копируем все валидные файлы во временную папку.
+ * Определяем все тэги в файлах
+ */
+$files = recurse_copy(getcwd(), TEMP_FOLDER);
 $all_tags = array();
 
 foreach ($files as $file) {
     $file_contents = file_get_contents($file);
     preg_match_all($pattern, $file_contents, $match);
-// var_dump($match[1]);
-//die();
     foreach ($match[1] as $tag_name_found) {
         if ($tag_name_found != null && !in_array($tag_name_found, $all_tags))
             $all_tags[] = $tag_name_found;
     }
 }
-//var_dump($all_tags);
+/*
+ * Если -t был пуст просто показываем тэги
+ */
+if (isset($arguments['-t']))
+    if (@$arguments['-t'][0] == '') {
+        echo "Tags in files: " . implode(', ', $all_tags) . "\n";
+        rmdir_recursive(TEMP_FOLDER);
+        die();
+    }
+
 $used_tags = [];
 $unused_tags = [];
 foreach ($all_tags as $tag) {
@@ -121,12 +148,15 @@ if (count($unused_tags) > 0)
 
 echo "\n";
 
-
+/*
+ * проходим по каждому обрабатываемому файлу и
+ * Обрабатываем его
+ */
 foreach ($files as $file) {
     if (!is_dir($file)) {
         $file_contents = file_get_contents($file);
         preg_match_all($pattern, $file_contents, $match);
-//var_dump($match[0]);
+
         foreach ($match[0] as $tag_with_content) {
             /* Узнаем тэг
              * Проверяем тэг
@@ -137,53 +167,52 @@ foreach ($files as $file) {
             $tag_name_found = $tag_name_found[1][0];
 
             if (!in_array($tag_name_found, $tags)) {
-                $new_tag_with_content = preg_replace('/\n(?!\/\/)(?!\/\*)/', "\n//", $tag_with_content);
+                $new_tag_with_content = preg_replace('/\n(?!\/\/)(?!\/\*) */', "\n//", $tag_with_content);
                 $file_contents = str_replace($tag_with_content, $new_tag_with_content, $file_contents);
-//die($file_contents);
             } else {
-                $new_tag_with_content = preg_replace('/\/\//', "", $tag_with_content);
+                $new_tag_with_content = preg_replace('/\/\/ */', "", $tag_with_content);
                 $file_contents = str_replace($tag_with_content, $new_tag_with_content, $file_contents);
             }
         }
         file_put_contents($file, $file_contents);
     }
 }
-$folder = explode('/', getcwd());
-$folder = $folder[count($folder) - 1];
-$a = '';
-while (file_exists($folder . $a . '.twinky.zip')) {
-    $a++;
-}
-$archive_name = $folder . $a . '.twinky.zip';
-//die($archive_name);
 
-$zip = new ZipArchive();
-if ($zip->open($archive_name, ZIPARCHIVE::CREATE) !== TRUE) {
-    die("Could not open archive");
-}
+/*
+ * Если не указан -o сохраняем все в ZIP архив
+ * иначе перезаписываем что у нас есть.
+ */
 
-$iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(TEMP_FOLDER));
-
-foreach ($iterator as $key => $value) {
-    if ($value == '.' || $value == '..')
-        continue;
-    $key = str_replace(TEMP_FOLDER, '', $key);
-//echo "$key \n";
-    $zip->addFile(realpath($key), $key) or die("ERROR: Could not add file: $key");
-}
-$zip->close();
-echo "Archive created: $archive_name\n";
-
-
-
-$it = new RecursiveDirectoryIterator(TEMP_FOLDER, RecursiveDirectoryIterator::SKIP_DOTS);
-$it_files = new RecursiveIteratorIterator($it, RecursiveIteratorIterator::CHILD_FIRST);
-foreach ($it_files as $file) {
-    if ($file->isDir()) {
-        rmdir($file->getRealPath());
-    } else {
-        unlink($file->getRealPath());
+if (!isset($arguments['-o'])) {
+    $folder = explode('/', getcwd());
+    $folder = $folder[count($folder) - 1];
+    $a = '';
+    while (file_exists($folder . $a . '.twinky.zip')) {
+        $a++;
     }
+    $archive_name = $folder . $a . '.twinky.zip';
+    $zip = new ZipArchive();
+    if ($zip->open($archive_name, ZIPARCHIVE::CREATE) !== TRUE) {
+        die("Could not open archive");
+    }
+
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(TEMP_FOLDER));
+
+    foreach ($iterator as $key => $value) {
+        $key = str_replace(TEMP_FOLDER, '', $key);
+        if ($key == '.' || $key == '..')
+            continue;
+        $zip->addFile(realpath($value), $key) or die("ERROR: Could not add file: $key");
+    }
+    $zip->close();
+    echo "Archive created: $archive_name\n";
+} else {
+
+    recurse_copy(TEMP_FOLDER, getcwd());
+
+    echo "Contents overwritten. \n";
 }
-rmdir(TEMP_FOLDER);
+
+
+rmdir_recursive(TEMP_FOLDER);
 
